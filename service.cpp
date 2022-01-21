@@ -1682,6 +1682,7 @@ TCHAR *service_control_text(unsigned long control) {
     case SERVICE_CONTROL_INTERROGATE: return _T("INTERROGATE");
     case NSSM_SERVICE_CONTROL_ROTATE: return _T("ROTATE");
     case SERVICE_CONTROL_POWEREVENT: return _T("POWEREVENT");
+    case SERVICE_CONTROL_SESSIONCHANGE: return _T("SERVICE_CONTROL_SESSIONCHANGE");
     default: return 0;
   }
 }
@@ -1823,6 +1824,17 @@ unsigned long WINAPI service_control_handler(unsigned long control, unsigned lon
       }
       log_service_control(service->name, control, false);
       return NO_ERROR;
+    case SERVICE_CONTROL_SESSIONCHANGE:
+      if (!service->process_handle && event == 0x5) { // WTS_SESSION_LOGON
+        log_service_control(service->name, control, true);
+        if (!CreateThread(NULL, 0, launch_service, (void *) service, 0, NULL)) {
+          log_event(EVENTLOG_ERROR_TYPE, NSSM_EVENT_CREATETHREAD_FAILED, error_string(GetLastError()), 0);
+          stop_service(service, 0, true, true);
+        }
+        return NO_ERROR;
+      }
+      // log_service_control(service->name, control, false);
+      return NO_ERROR;
   }
 
   /* Unknown control */
@@ -1865,7 +1877,7 @@ int start_service(nssm_service_t *service) {
   throttle_restart(service);
 
   service->status.dwCurrentState = SERVICE_START_PENDING;
-  service->status.dwControlsAccepted = SERVICE_ACCEPT_POWEREVENT | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_STOP;
+  service->status.dwControlsAccepted = SERVICE_ACCEPT_POWEREVENT | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SESSIONCHANGE;
   SetServiceStatus(service->status_handle, &service->status);
 
   unsigned long control = NSSM_SERVICE_CONTROL_START;
@@ -1898,7 +1910,8 @@ int start_service(nssm_service_t *service) {
     if (si.dwFlags & STARTF_USESTDHANDLES) inherit_handles = true;
     unsigned long flags = service->priority & priority_mask();
     if (service->affinity) flags |= CREATE_SUSPENDED;
-    if (! service->no_console) flags |= CREATE_NEW_CONSOLE;
+    if (! service->no_console) flags |= CREATE_NEW_CONSOLE;
+
     if (! CreateProcess(0, cmd, 0, 0, inherit_handles, flags, 0, service->dir, &si, &pi)) {
       unsigned long exitcode = 3;
       unsigned long error = GetLastError();
