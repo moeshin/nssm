@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  - workflow_dispatch
+
+env:
+  # Path to the solution file relative to the root of the project.
+  SOLUTION_FILE_PATH: nssm.sln
+
+  # Configuration type to build.
+  # You can convert this to a build matrix if you need coverage of multiple configuration types.
+  # https://docs.github.com/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+  BUILD_CONFIGURATION: Release
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v1
+
+    - name: Build Win32
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      # Add additional options to the MSBuild command line here (like platform or verbosity level).
+      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=Win32 ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Rename Win32
+      run: Move-Item out\Release\win32\nssm.exe out\Release\win32\nssm-win32.exe
+
+    - name: Build Win64
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      # Add additional options to the MSBuild command line here (like platform or verbosity level).
+      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=Win64 ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Rename Win64
+      run: Move-Item out\Release\win64\nssm.exe out\Release\win32\nssm-win64.exe
+      
+    - name: Realse Tag
+      run: |
+        echo "release_version=$(git describe --tags --long)" >> $env:GITHUB_ENV
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ env.release_version }}
+        files: |
+          out\Release\win32\nssm-win32.exe
+          out\Release\win32\nssm-win64.exe
+
